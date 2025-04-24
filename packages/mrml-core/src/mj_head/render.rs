@@ -236,12 +236,68 @@ impl Renderer<'_, MjHead, ()> {
             cursor.buffer.push_str("</style>");
         }
 
-        // TODO this should be optional
-        cursor.buffer.push_str("<style type=\"text/css\">");
-        for item in self.mj_style_iter() {
-            cursor.buffer.push_str(item);
+        // Group styles by inline attribute
+        let mapped_styles: Vec<(&str, bool)> = self
+            .mj_style_iter()
+            .map(|style_content| {
+                let mj_style = self
+                    .element
+                    .children
+                    .iter()
+                    .find_map(|child| {
+                        child
+                            .as_mj_style()
+                            .filter(|s| s.children.trim() == style_content)
+                    })
+                    .or_else(|| {
+                        self.element
+                            .children
+                            .iter()
+                            .filter_map(|child| child.as_mj_include())
+                            .flat_map(|include| include.0.children.iter())
+                            .find_map(|child| {
+                                child
+                                    .as_mj_style()
+                                    .filter(|s| s.children.trim() == style_content)
+                            })
+                    });
+
+                (
+                    style_content,
+                    mj_style.map(|s| s.is_inline()).unwrap_or(false),
+                )
+            })
+            .collect();
+
+        let (inline_styles, non_inline_styles): (Vec<_>, Vec<_>) =
+            mapped_styles.iter().partition(|(_, is_inline)| *is_inline);
+
+        // Set the flag if there are any inline styles
+        if !inline_styles.is_empty() {
+            cursor.header.set_has_inline_styles(true);
         }
-        cursor.buffer.push_str("</style>");
+
+        // Render inline styles
+        if !inline_styles.is_empty() {
+            cursor.buffer.push_str("<style type=\"text/css\">");
+            for (style, _) in inline_styles {
+                cursor.buffer.push_str(style);
+            }
+            cursor.buffer.push_str("</style>");
+        }
+
+        // Render non-inline styles
+        if !non_inline_styles.is_empty() {
+            cursor.buffer.push_str("<style type=\"text/css\"");
+            if cursor.header.has_inline_styles() {
+                cursor.buffer.push_str(" data-css-inline=\"ignore\"");
+            }
+            cursor.buffer.push_str(">");
+            for (style, _) in non_inline_styles {
+                cursor.buffer.push_str(style);
+            }
+            cursor.buffer.push_str("</style>");
+        }
     }
 
     fn render_raw(&self, cursor: &mut RenderCursor) -> Result<(), Error> {
