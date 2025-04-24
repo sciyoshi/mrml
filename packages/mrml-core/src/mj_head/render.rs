@@ -228,14 +228,6 @@ impl Renderer<'_, MjHead, ()> {
     }
 
     fn render_styles(&self, cursor: &mut RenderCursor) {
-        if !cursor.header.styles().is_empty() {
-            cursor.buffer.push_str("<style type=\"text/css\">");
-            for style in cursor.header.styles().iter() {
-                cursor.buffer.push_str(style);
-            }
-            cursor.buffer.push_str("</style>");
-        }
-
         // Group styles by inline attribute
         let mapped_styles: Vec<(&str, bool)> = self
             .mj_style_iter()
@@ -272,13 +264,24 @@ impl Renderer<'_, MjHead, ()> {
         let (inline_styles, non_inline_styles): (Vec<_>, Vec<_>) =
             mapped_styles.iter().partition(|(_, is_inline)| *is_inline);
 
+        // Clone header styles to avoid borrowing issues
+        let header_styles: Vec<String> = cursor
+            .header
+            .styles()
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+
+        // Check if there are inline styles
+        let has_inline_styles = !inline_styles.is_empty();
+
         // Set the flag if there are any inline styles
-        if !inline_styles.is_empty() {
+        if has_inline_styles {
             cursor.header.set_has_inline_styles(true);
         }
 
         // Render inline styles
-        if !inline_styles.is_empty() {
+        if has_inline_styles {
             cursor.buffer.push_str("<style type=\"text/css\">");
             for (style, _) in inline_styles {
                 cursor.buffer.push_str(style);
@@ -287,15 +290,23 @@ impl Renderer<'_, MjHead, ()> {
         }
 
         // Render non-inline styles
-        if !non_inline_styles.is_empty() {
+        if !non_inline_styles.is_empty() || !header_styles.is_empty() {
             cursor.buffer.push_str("<style type=\"text/css\"");
-            if cursor.header.has_inline_styles() {
+            if has_inline_styles {
                 cursor.buffer.push_str(" data-css-inline=\"ignore\"");
             }
             cursor.buffer.push_str(">");
+
+            // Add non-inline styles from mj_style elements
             for (style, _) in non_inline_styles {
                 cursor.buffer.push_str(style);
             }
+
+            // Add additional styles from header
+            for style in &header_styles {
+                cursor.buffer.push_str(style);
+            }
+
             cursor.buffer.push_str("</style>");
         }
     }
